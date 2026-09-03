@@ -1,0 +1,532 @@
+{
+ "Resources": {
+  "SeedLabVpc01EAE22D": {
+   "Type": "AWS::EC2::VPC",
+   "Properties": {
+    "CidrBlock": "10.10.0.0/16",
+    "EnableDnsHostnames": true,
+    "EnableDnsSupport": true,
+    "InstanceTenancy": "default",
+    "Tags": [
+     {
+      "Key": "Name",
+      "Value": "SeedLabStack/SeedLabVpc"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabVpc/Resource"
+   }
+  },
+  "SeedLabVpcPublicSubnet1SubnetDE8F527D": {
+   "Type": "AWS::EC2::Subnet",
+   "Properties": {
+    "AvailabilityZone": "us-east-2a",
+    "CidrBlock": "10.10.0.0/24",
+    "MapPublicIpOnLaunch": true,
+    "Tags": [
+     {
+      "Key": "aws-cdk:subnet-name",
+      "Value": "Public"
+     },
+     {
+      "Key": "aws-cdk:subnet-type",
+      "Value": "Public"
+     },
+     {
+      "Key": "Name",
+      "Value": "SeedLabStack/SeedLabVpc/PublicSubnet1"
+     }
+    ],
+    "VpcId": {
+     "Ref": "SeedLabVpc01EAE22D"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabVpc/PublicSubnet1/Subnet"
+   }
+  },
+  "SeedLabVpcPublicSubnet1RouteTable6CA684ED": {
+   "Type": "AWS::EC2::RouteTable",
+   "Properties": {
+    "Tags": [
+     {
+      "Key": "Name",
+      "Value": "SeedLabStack/SeedLabVpc/PublicSubnet1"
+     }
+    ],
+    "VpcId": {
+     "Ref": "SeedLabVpc01EAE22D"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabVpc/PublicSubnet1/RouteTable"
+   }
+  },
+  "SeedLabVpcPublicSubnet1RouteTableAssociationDD92A0AD": {
+   "Type": "AWS::EC2::SubnetRouteTableAssociation",
+   "Properties": {
+    "RouteTableId": {
+     "Ref": "SeedLabVpcPublicSubnet1RouteTable6CA684ED"
+    },
+    "SubnetId": {
+     "Ref": "SeedLabVpcPublicSubnet1SubnetDE8F527D"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabVpc/PublicSubnet1/RouteTableAssociation"
+   }
+  },
+  "SeedLabVpcPublicSubnet1DefaultRoute180A674A": {
+   "Type": "AWS::EC2::Route",
+   "Properties": {
+    "DestinationCidrBlock": "0.0.0.0/0",
+    "GatewayId": {
+     "Ref": "SeedLabVpcIGW01095B60"
+    },
+    "RouteTableId": {
+     "Ref": "SeedLabVpcPublicSubnet1RouteTable6CA684ED"
+    }
+   },
+   "DependsOn": [
+    "SeedLabVpcVPCGW3A332895"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabVpc/PublicSubnet1/DefaultRoute"
+   }
+  },
+  "SeedLabVpcIGW01095B60": {
+   "Type": "AWS::EC2::InternetGateway",
+   "Properties": {
+    "Tags": [
+     {
+      "Key": "Name",
+      "Value": "SeedLabStack/SeedLabVpc"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabVpc/IGW"
+   }
+  },
+  "SeedLabVpcVPCGW3A332895": {
+   "Type": "AWS::EC2::VPCGatewayAttachment",
+   "Properties": {
+    "InternetGatewayId": {
+     "Ref": "SeedLabVpcIGW01095B60"
+    },
+    "VpcId": {
+     "Ref": "SeedLabVpc01EAE22D"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabVpc/VPCGW"
+   }
+  },
+  "SeedLabVpcRestrictDefaultSecurityGroupCustomResourceD1129952": {
+   "Type": "Custom::VpcRestrictDefaultSG",
+   "Properties": {
+    "ServiceToken": {
+     "Fn::GetAtt": [
+      "CustomVpcRestrictDefaultSGCustomResourceProviderHandlerDC833E5E",
+      "Arn"
+     ]
+    },
+    "DefaultSecurityGroupId": {
+     "Fn::GetAtt": [
+      "SeedLabVpc01EAE22D",
+      "DefaultSecurityGroup"
+     ]
+    },
+    "Account": "526971782316"
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabVpc/RestrictDefaultSecurityGroupCustomResource/Default"
+   }
+  },
+  "CustomVpcRestrictDefaultSGCustomResourceProviderRole26592FE0": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Version": "2012-10-17",
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ]
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+     }
+    ],
+    "Policies": [
+     {
+      "PolicyName": "Inline",
+      "PolicyDocument": {
+       "Version": "2012-10-17",
+       "Statement": [
+        {
+         "Effect": "Allow",
+         "Action": [
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:AuthorizeSecurityGroupEgress",
+          "ec2:RevokeSecurityGroupIngress",
+          "ec2:RevokeSecurityGroupEgress"
+         ],
+         "Resource": [
+          {
+           "Fn::Join": [
+            "",
+            [
+             "arn:aws:ec2:us-east-2:526971782316:security-group/",
+             {
+              "Fn::GetAtt": [
+               "SeedLabVpc01EAE22D",
+               "DefaultSecurityGroup"
+              ]
+             }
+            ]
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/Custom::VpcRestrictDefaultSGCustomResourceProvider/Role"
+   }
+  },
+  "CustomVpcRestrictDefaultSGCustomResourceProviderHandlerDC833E5E": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-526971782316-us-east-2",
+     "S3Key": "ee7de53d64cc9d6248fa6aa550f92358f6c907b5efd6f3298aeab1b5e7ea358a.zip"
+    },
+    "Timeout": 900,
+    "MemorySize": 128,
+    "Handler": "__entrypoint__.handler",
+    "Role": {
+     "Fn::GetAtt": [
+      "CustomVpcRestrictDefaultSGCustomResourceProviderRole26592FE0",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Description": "Lambda function for removing all inbound/outbound rules from the VPC default security group"
+   },
+   "DependsOn": [
+    "CustomVpcRestrictDefaultSGCustomResourceProviderRole26592FE0"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/Custom::VpcRestrictDefaultSGCustomResourceProvider/Handler",
+    "aws:asset:path": "asset.ee7de53d64cc9d6248fa6aa550f92358f6c907b5efd6f3298aeab1b5e7ea358a",
+    "aws:asset:property": "Code"
+   }
+  },
+  "SeedLabSG0CC3EDE1": {
+   "Type": "AWS::EC2::SecurityGroup",
+   "Properties": {
+    "GroupDescription": "SEED Labs: SSH and VNC access",
+    "GroupName": "seed-lab-sg",
+    "SecurityGroupEgress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "Allow all outbound traffic by default",
+      "IpProtocol": "-1"
+     }
+    ],
+    "SecurityGroupIngress": [
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "SSH",
+      "FromPort": 22,
+      "IpProtocol": "tcp",
+      "ToPort": 22
+     },
+     {
+      "CidrIp": "0.0.0.0/0",
+      "Description": "VNC (displays :1-:10)",
+      "FromPort": 5901,
+      "IpProtocol": "tcp",
+      "ToPort": 5910
+     }
+    ],
+    "VpcId": {
+     "Ref": "SeedLabVpc01EAE22D"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabSG/Resource"
+   }
+  },
+  "SeedLabKeyPairCF6C06B8": {
+   "Type": "AWS::EC2::KeyPair",
+   "Properties": {
+    "KeyFormat": "pem",
+    "KeyName": "seed-lab-key",
+    "KeyType": "rsa"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabKeyPair/Resource"
+   }
+  },
+  "SeedLabInstanceRole35A6DCE9": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "ec2.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/AmazonSSMManagedInstanceCore"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabInstanceRole/Resource"
+   }
+  },
+  "SeedLabInstanceInstanceProfileFC604782": {
+   "Type": "AWS::IAM::InstanceProfile",
+   "Properties": {
+    "Roles": [
+     {
+      "Ref": "SeedLabInstanceRole35A6DCE9"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabInstance/InstanceProfile"
+   }
+  },
+  "SeedLabInstance654BB541": {
+   "Type": "AWS::EC2::Instance",
+   "Properties": {
+    "AvailabilityZone": "us-east-2a",
+    "BlockDeviceMappings": [
+     {
+      "DeviceName": "/dev/sda1",
+      "Ebs": {
+       "DeleteOnTermination": true,
+       "Encrypted": true,
+       "VolumeSize": 16,
+       "VolumeType": "gp3"
+      }
+     }
+    ],
+    "IamInstanceProfile": {
+     "Ref": "SeedLabInstanceInstanceProfileFC604782"
+    },
+    "ImageId": "ami-0f30a9c3a48f3fa79",
+    "InstanceType": "t3.small",
+    "KeyName": {
+     "Ref": "SeedLabKeyPairCF6C06B8"
+    },
+    "LaunchTemplate": {
+     "LaunchTemplateName": "SeedLabStackSeedLabInstanceLaunchTemplateB37462DA",
+     "Version": {
+      "Fn::GetAtt": [
+       "SeedLabInstanceLaunchTemplateC67F9E85",
+       "LatestVersionNumber"
+      ]
+     }
+    },
+    "SecurityGroupIds": [
+     {
+      "Fn::GetAtt": [
+       "SeedLabSG0CC3EDE1",
+       "GroupId"
+      ]
+     }
+    ],
+    "SubnetId": {
+     "Ref": "SeedLabVpcPublicSubnet1SubnetDE8F527D"
+    },
+    "Tags": [
+     {
+      "Key": "Name",
+      "Value": "seed-lab-vm"
+     },
+     {
+      "Key": "Project",
+      "Value": "SEEDLabs"
+     }
+    ],
+    "UserData": {
+     "Fn::Base64": "#!/bin/bash\n#!/bin/bash\n# =============================================================================\n# SEED Labs EC2 User-Data Bootstrap Script\n# Runs as root on first boot via cloud-init.\n#\n# What this does:\n#   1. Creates the 'seed' user account (no password — sudo su seed to access)\n#   2. Downloads and installs SEED Labs software from seed.nyc3.cdn.digitaloceanspaces.com\n#   3. Answers Wireshark and LightDM prompts non-interactively\n#   4. Starts TigerVNC server on display :1 (port 5901) for the seed user\n#   5. Writes a systemd service so VNC auto-starts on reboot\n# =============================================================================\n\nset -euo pipefail\nexec > /var/log/seed-bootstrap.log 2>&1\n\necho \"=== SEED Labs bootstrap started at $(date) ===\"\n\n# ---------------------------------------------------------------------------\n# 1. System update\n# ---------------------------------------------------------------------------\nexport DEBIAN_FRONTEND=noninteractive\napt-get update -y\napt-get upgrade -y -o Dpkg::Options::=\"--force-confold\"\n\n# ---------------------------------------------------------------------------\n# 2. Install unzip (needed to unpack src-cloud.zip)\n# ---------------------------------------------------------------------------\napt-get install -y unzip\n\n# ---------------------------------------------------------------------------\n# 3. Pre-seed debconf answers so install.sh runs fully unattended\n#    - Wireshark: non-superusers should NOT capture packets → select \"No\"\n#    - Display manager: use LightDM\n# ---------------------------------------------------------------------------\napt-get install -y debconf-utils\n\necho \"wireshark-common wireshark-common/install-setuid boolean false\" \\\n    | debconf-set-selections\n\necho \"lightdm shared/default-x-display-manager select lightdm\" \\\n    | debconf-set-selections\n\n# ---------------------------------------------------------------------------\n# 4. Download and unpack src-cloud.zip\n# ---------------------------------------------------------------------------\ncd /tmp\ncurl -fsSL -o src-cloud.zip \\\n    https://seed.nyc3.cdn.digitaloceanspaces.com/src-cloud.zip\n\nunzip -q src-cloud.zip\n\n# ---------------------------------------------------------------------------\n# 5. Run the SEED install script\n#    DEBIAN_FRONTEND=noninteractive ensures no interactive prompts block us.\n# ---------------------------------------------------------------------------\ncd /tmp/src-cloud\nchmod +x install.sh\nDEBIAN_FRONTEND=noninteractive ./install.sh\n\necho \"=== SEED install.sh finished at $(date) ===\"\n\n# ---------------------------------------------------------------------------\n# 6. Set a VNC password for the seed user\n#    We write it directly to the TigerVNC passwd file so there is no\n#    interactive prompt.  Change this password after first login!\n# ---------------------------------------------------------------------------\nVNC_PASSWORD=\"SEEDlabs2024!\"   # <-- change after deployment\n\nmkdir -p /home/seed/.vnc\n# vncpasswd -f reads plaintext from stdin and writes the hashed file\necho \"${VNC_PASSWORD}\" | sudo -u seed vncpasswd -f > /home/seed/.vnc/passwd\nchmod 600 /home/seed/.vnc/passwd\nchown seed:seed /home/seed/.vnc/passwd\n\n# ---------------------------------------------------------------------------\n# 7. Write an xstartup file so TigerVNC launches the XFCE4 desktop\n# ---------------------------------------------------------------------------\ncat > /home/seed/.vnc/xstartup <<'XSTARTUP'\n#!/bin/bash\nunset SESSION_MANAGER\nunset DBUS_SESSION_BUS_ADDRESS\nexec /bin/sh /etc/xdg/xfce4/xinitrc\nXSTARTUP\nchmod +x /home/seed/.vnc/xstartup\nchown seed:seed /home/seed/.vnc/xstartup\n\n# ---------------------------------------------------------------------------\n# 8. Create a systemd service so VNC starts automatically on boot\n# ---------------------------------------------------------------------------\ncat > /etc/systemd/system/vncserver@.service <<'SYSTEMD'\n[Unit]\nDescription=TigerVNC server for display :%i\nAfter=network.target\n\n[Service]\nType=forking\nUser=seed\nGroup=seed\nWorkingDirectory=/home/seed\n\n# Clean up any stale lock files from a previous run\nExecStartPre=/bin/sh -c '/usr/bin/vncserver -kill :%i > /dev/null 2>&1 || true'\nExecStart=/usr/bin/vncserver :%i -localhost no -geometry 1280x800 -depth 24\nExecStop=/usr/bin/vncserver -kill :%i\n\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\nSYSTEMD\n\nsystemctl daemon-reload\nsystemctl enable vncserver@1.service\nsystemctl start  vncserver@1.service\n\necho \"=== SEED Labs bootstrap completed successfully at $(date) ===\"\n"
+    }
+   },
+   "DependsOn": [
+    "SeedLabInstanceRole35A6DCE9"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabInstance/Resource"
+   }
+  },
+  "SeedLabInstanceLaunchTemplateC67F9E85": {
+   "Type": "AWS::EC2::LaunchTemplate",
+   "Properties": {
+    "LaunchTemplateData": {
+     "MetadataOptions": {
+      "HttpTokens": "required"
+     }
+    },
+    "LaunchTemplateName": "SeedLabStackSeedLabInstanceLaunchTemplateB37462DA"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/SeedLabInstance/LaunchTemplate"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/3VOy26DQAz8ltyXbaDKB9AcoqiViiDKtTIbJ7gBL9r1FiHEv1c0UNRDT56Hx+NEx7ud3m6g85G53KOaSj0UAuauoPMfA5pED+fWqP2Vz9leZaGsyRShZJRJW1Fug+AJyhpXfdVS760hELL8uzyBIws6RjmAYAf9XDOzVARM1SCLKtAER9IfnA3tT8Ef4RX7DMhNxgKP7AXYzC0rfoPApjph09YgOCqCRg+5fby9zCWQOXulGsdR5ehtcNOJ4MU2K73yP1bm7Bdd0L2AR5V6j1II3IhvU+Y9SBtkVFkvleWnZx0nOt5uPj1R5AILNajzx/wGIkQb76MBAAA="
+   },
+   "Metadata": {
+    "aws:cdk:path": "SeedLabStack/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "InstanceId": {
+   "Description": "EC2 instance ID",
+   "Value": {
+    "Ref": "SeedLabInstance654BB541"
+   }
+  },
+  "PublicIp": {
+   "Description": "Public IP address of the SEED Lab VM",
+   "Value": {
+    "Fn::GetAtt": [
+     "SeedLabInstance654BB541",
+     "PublicIp"
+    ]
+   }
+  },
+  "SshCommand": {
+   "Description": "SSH command (use the downloaded .pem key)",
+   "Value": {
+    "Fn::Sub": [
+     "ssh -i seed-lab-key.pem ubuntu@${IP}",
+     {
+      "IP": {
+       "Fn::GetAtt": [
+        "SeedLabInstance654BB541",
+        "PublicIp"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "VncAddress": {
+   "Description": "VNC viewer address (display :1, port 5901)",
+   "Value": {
+    "Fn::Sub": [
+     "${IP}:5901",
+     {
+      "IP": {
+       "Fn::GetAtt": [
+        "SeedLabInstance654BB541",
+        "PublicIp"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  "KeyPairSsmPath": {
+   "Description": "SSM Parameter Store path for the private key. Retrieve with: aws ssm get-parameter --name /ec2/keypair/<key-id> --with-decryption --query Parameter.Value --output text > seed-lab-key.pem",
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "/ec2/keypair/",
+      {
+       "Fn::GetAtt": [
+        "SeedLabKeyPairCF6C06B8",
+        "KeyPairId"
+       ]
+      }
+     ]
+    ]
+   }
+  },
+  "SsmSessionCommand": {
+   "Description": "Start an SSM Session Manager shell session. Requires the AWS CLI and the Session Manager plugin installed locally.",
+   "Value": {
+    "Fn::Sub": [
+     "aws ssm start-session --target ${InstanceId}",
+     {
+      "InstanceId": {
+       "Ref": "SeedLabInstance654BB541"
+      }
+     }
+    ]
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,34 @@
+{
+  "version": "36.3.0",
+  "files": {
+    "ee7de53d64cc9d6248fa6aa550f92358f6c907b5efd6f3298aeab1b5e7ea358a": {
+      "source": {
+        "path": "asset.ee7de53d64cc9d6248fa6aa550f92358f6c907b5efd6f3298aeab1b5e7ea358a",
+        "packaging": "zip"
+      },
+      "destinations": {
+        "526971782316-us-east-2": {
+          "bucketName": "cdk-hnb659fds-assets-526971782316-us-east-2",
+          "objectKey": "ee7de53d64cc9d6248fa6aa550f92358f6c907b5efd6f3298aeab1b5e7ea358a.zip",
+          "region": "us-east-2",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::526971782316:role/cdk-hnb659fds-file-publishing-role-526971782316-us-east-2"
+        }
+      }
+    },
+    "ea5f758359401f96fa531dfbf88bbfc65d3fb7037294f09e30c9a862db526f5e": {
+      "source": {
+        "path": "SeedLabStack.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "526971782316-us-east-2": {
+          "bucketName": "cdk-hnb659fds-assets-526971782316-us-east-2",
+          "objectKey": "ea5f758359401f96fa531dfbf88bbfc65d3fb7037294f09e30c9a862db526f5e.json",
+          "region": "us-east-2",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::526971782316:role/cdk-hnb659fds-file-publishing-role-526971782316-us-east-2"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}
