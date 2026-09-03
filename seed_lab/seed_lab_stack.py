@@ -12,6 +12,11 @@ Resources created
          (default: 0.0.0.0/0).  Example:
              cdk deploy --context allowed_cidr=203.0.113.0/24
 * EC2 instance – t3.small, Ubuntu 20.04 LTS (x86_64), 16 GiB gp3 root volume.
+* IAM Role – instance profile with AmazonSSMManagedInstanceCore, which allows
+             AWS Systems Manager Session Manager to open a shell session without
+             any open inbound ports.  Connect after deploy with:
+             aws ssm start-session --target <InstanceId>
+             (requires the AWS CLI and the Session Manager plugin)
 * Key Pair – an EC2 managed key pair whose private-key material is stored in
              AWS Systems Manager Parameter Store at /seed-lab/key-pair/private-key.
              Retrieve it after deploy with:
@@ -29,11 +34,12 @@ The bootstrap script (user_data.sh, read at synth time) runs on first boot and:
 
 Outputs
 -------
-* InstanceId        – EC2 instance ID
-* PublicIp          – Instance public IP (connect with VNC viewer)
-* SshCommand        – Ready-to-use SSH command string
-* VncAddress        – VNC address string  <ip>:5901
-* KeyPairSsmPath    – SSM path to retrieve the private key
+* InstanceId          – EC2 instance ID
+* PublicIp            – Instance public IP (connect with VNC viewer)
+* SshCommand          – Ready-to-use SSH command string
+* VncAddress          – VNC address string  <ip>:5901
+* KeyPairSsmPath      – SSM path to retrieve the private key
+* SsmSessionCommand   – Command to open an SSM Session Manager shell
 """
 
 from pathlib import Path
@@ -44,6 +50,7 @@ from aws_cdk import (
     Stack,
     Tags,
     aws_ec2 as ec2,
+    aws_iam as iam,
 )
 from constructs import Construct
 
@@ -147,6 +154,22 @@ class SeedLabStack(Stack):
         )
 
         # ------------------------------------------------------------------
+        # IAM Role – grants the instance permission to register with SSM
+        # so that AWS Systems Manager Session Manager can be used to connect
+        # without opening port 22 (SSH can optionally be removed).
+        # ------------------------------------------------------------------
+        role = iam.Role(
+            self,
+            "SeedLabInstanceRole",
+            assumed_by=iam.ServicePrincipal("ec2.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "AmazonSSMManagedInstanceCore"
+                )
+            ],
+        )
+
+        # ------------------------------------------------------------------
         # AMI selection
         # Prefer a dynamic lookup so we always get the latest Canonical AMI;
         # fall back to the hard-coded table for offline / restricted synths.
@@ -184,6 +207,7 @@ class SeedLabStack(Stack):
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
             security_group=sg,
             key_pair=key_pair,
+            role=role,
             user_data=user_data,
             # IMDSv2 required – best practice for new instances
             require_imdsv2=True,
@@ -249,5 +273,18 @@ class SeedLabStack(Stack):
                 "Retrieve with: aws ssm get-parameter "
                 "--name /ec2/keypair/<key-id> --with-decryption "
                 "--query Parameter.Value --output text > seed-lab-key.pem"
+            ),
+        )
+
+        CfnOutput(
+            self,
+            "SsmSessionCommand",
+            value=cdk.Fn.sub(
+                "aws ssm start-session --target ${InstanceId}",
+                {"InstanceId": instance.instance_id},
+            ),
+            description=(
+                "Start an SSM Session Manager shell session. "
+                "Requires the AWS CLI and the Session Manager plugin installed locally."
             ),
         )
