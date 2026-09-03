@@ -217,11 +217,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# CDK - Need template for pipeline operation
-cdk.out/cache
-cdk.out/cache/*
-cdk.out/cdk.out
-cdk.out/manifest.json
-cdk.out/tree.json
-cdk.out/asset*
+# CDK
+cdk.out
+cdk.out/*
 manifest.json
