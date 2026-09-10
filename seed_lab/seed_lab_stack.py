@@ -12,17 +12,26 @@ Resources created
          (default: 0.0.0.0/0).  Example:
              cdk deploy --context allowed_cidr=203.0.113.0/24
 * EC2 instance – t3.small, Ubuntu 20.04 LTS (x86_64), 16 GiB gp3 root volume.
-* IAM Role – instance profile with AmazonSSMManagedInstanceCore, which allows
-             AWS Systems Manager Session Manager to open a shell session without
-             any open inbound ports.  Connect after deploy with:
-             aws ssm start-session --target <InstanceId>
-             (requires the AWS CLI and the Session Manager plugin)
+* IAM Role – instance profile with AmazonSSMManagedInstanceCore and
+             AmazonSSMPatchAssociation, which allows AWS Systems Manager
+             Session Manager and Patch Manager to manage the instance.
 * Key Pair – an EC2 managed key pair whose private-key material is stored in
              AWS Systems Manager Parameter Store at /seed-lab/key-pair/private-key.
              Retrieve it after deploy with:
              aws ssm get-parameter --name /seed-lab/key-pair/private-key \
                  --with-decryption --query Parameter.Value --output text \
                  > seed-lab-key.pem
+* SSM Patch Manager – a maintenance window runs every Sunday at 02:00 UTC
+             and applies the AWS-DefaultPatchBaseline to all instances tagged
+             Project=SEEDLabs.  Results are visible in the SSM Patch Manager
+             console.
+* Auto-stop – an EventBridge scheduled rule fires every day at 06:00 UTC
+             (01:00 EST / 02:00 EDT).  A Lambda function (Python 3.12) calls
+             ec2:StopInstances targeting the instance by tag (Project=SEEDLabs).
+             This ensures the instance does not run overnight and accrue costs.
+* GuardDuty – a GuardDuty detector is enabled in the deployment region to
+             monitor for malicious activity, unusual API calls, and potential
+             compromises of the EC2 instance and associated AWS account.
 
 User-data
 ---------
@@ -31,6 +40,7 @@ The bootstrap script (user_data.sh, read at synth time) runs on first boot and:
   - Pre-seeds debconf so Wireshark and LightDM install without prompts
   - Creates the `seed` account with a hashed VNC password
   - Starts TigerVNC on display :1 (port 5901) via a systemd service
+  - Ensures the SSM Agent is enabled and running for Patch Manager
 
 Outputs
 -------
@@ -40,17 +50,25 @@ Outputs
 * VncAddress          – VNC address string  <ip>:5901
 * KeyPairSsmPath      – SSM path to retrieve the private key
 * SsmSessionCommand   – Command to open an SSM Session Manager shell
+* GuardDutyDetectorId – GuardDuty detector ID for this region
 """
 
+import json
 from pathlib import Path
 
 import aws_cdk as cdk
 from aws_cdk import (
     CfnOutput,
+    Duration,
     Stack,
     Tags,
     aws_ec2 as ec2,
+    aws_events as events,
+    aws_events_targets as targets,
+    aws_guardduty as guardduty,
     aws_iam as iam,
+    aws_lambda as lambda_,
+    aws_ssm as ssm,
 )
 from constructs import Construct
 
@@ -117,29 +135,29 @@ class SeedLabStack(Stack):
         )
 
         # ------------------------------------------------------------------
-        # Security Group – SSH (22) and VNC (5901-5910)
+        # Security Group – SSH (22) and VNC (5901-5910) - Disabled By Default!!
         # ------------------------------------------------------------------
         sg = ec2.SecurityGroup(
             self,
             "SeedLabSG",
             vpc=vpc,
             security_group_name="seed-lab-sg",
-            description="SEED Labs: SSH and VNC access",
+            description="SEED Labs: SSH and VNC access - Add Rule to Allow Traffic",
             allow_all_outbound=True,
         )
 
-        sg.add_ingress_rule(
-            peer=ec2.Peer.ipv4(allowed_cidr),
-            connection=ec2.Port.tcp(22),
-            description="SSH",
-        )
+        #sg.add_ingress_rule(
+        #    peer=ec2.Peer.ipv4(allowed_cidr),
+        #    connection=ec2.Port.tcp(22),
+        #    description="SSH",
+        #)
 
         # VNC display :1 through :10  →  ports 5901-5910
-        sg.add_ingress_rule(
-            peer=ec2.Peer.ipv4(allowed_cidr),
-            connection=ec2.Port.tcp_range(5901, 5910),
-            description="VNC (displays :1-:10)",
-        )
+        #sg.add_ingress_rule(
+        #    peer=ec2.Peer.ipv4(allowed_cidr),
+        #    connection=ec2.Port.tcp_range(5901, 5910),
+        #    description="VNC (displays :1-:10)",
+        #)
 
         # ------------------------------------------------------------------
         # EC2 Managed Key Pair
@@ -154,9 +172,9 @@ class SeedLabStack(Stack):
         )
 
         # ------------------------------------------------------------------
-        # IAM Role – grants the instance permission to register with SSM
-        # so that AWS Systems Manager Session Manager can be used to connect
-        # without opening port 22 (SSH can optionally be removed).
+        # IAM Role – grants the instance permission to:
+        #   * Register with SSM (Session Manager + Patch Manager)
+        #   * Receive patch associations from SSM Patch Manager
         # ------------------------------------------------------------------
         role = iam.Role(
             self,
@@ -165,7 +183,12 @@ class SeedLabStack(Stack):
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "AmazonSSMManagedInstanceCore"
-                )
+                ),
+                # Required for Patch Manager to apply patches and write
+                # compliance data back to SSM.
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "AmazonSSMPatchAssociation"
+                ),
             ],
         )
 
@@ -227,9 +250,209 @@ class SeedLabStack(Stack):
         Tags.of(instance).add("Name", "seed-lab-vm")
         Tags.of(instance).add("Project", "SEEDLabs")
 
-        # ------------------------------------------------------------------
+        # ==================================================================
+        # SSM PATCH MANAGER – weekly maintenance window
+        # ==================================================================
+        # Maintenance window: every Sunday at 02:00 UTC, 2-hour cutoff.
+        # This is off-peak time globally and well before the 06:00 UTC
+        # auto-stop fires, so patching completes before the instance stops.
+        maintenance_window = ssm.CfnMaintenanceWindow(
+            self,
+            "SeedLabPatchWindow",
+            name="seed-lab-weekly-patch",
+            description="Weekly OS patching for SEED Lab VM (Sundays 02:00 UTC)",
+            # cron: minute hour day-of-month month day-of-week year
+            schedule="cron(0 2 ? * SUN *)",
+            duration=2,           # window lasts up to 2 hours
+            cutoff=1,             # stop scheduling new tasks 1 hour before end
+            allow_unassociated_targets=False,
+        )
+
+        # Target: all instances tagged Project=SEEDLabs in this account/region.
+        patch_target = ssm.CfnMaintenanceWindowTarget(
+            self,
+            "SeedLabPatchTarget",
+            window_id=maintenance_window.ref,
+            resource_type="INSTANCE",
+            targets=[
+                ssm.CfnMaintenanceWindowTarget.TargetsProperty(
+                    key="tag:Project",
+                    values=["SEEDLabs"],
+                )
+            ],
+            name="seed-lab-instances",
+            description="SEED Lab VM instances (tag Project=SEEDLabs)",
+        )
+
+        # IAM role that SSM uses to execute the patch task on the instance.
+        patch_task_role = iam.Role(
+            self,
+            "SeedLabPatchTaskRole",
+            assumed_by=iam.ServicePrincipal("ssm.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "AmazonSSMMaintenanceWindowRole"
+                )
+            ],
+        )
+
+        # Allow SSM service to pass this role when scheduling tasks.
+        patch_task_role.grant_pass_role(
+            iam.ServicePrincipal("ssm.amazonaws.com")
+        )
+
+        # Task: run AWS-RunPatchBaseline with Install operation.
+        ssm.CfnMaintenanceWindowTask(
+            self,
+            "SeedLabPatchTask",
+            window_id=maintenance_window.ref,
+            task_arn="AWS-RunPatchBaseline",
+            task_type="RUN_COMMAND",
+            priority=1,
+            max_concurrency="1",
+            max_errors="1",
+            service_role_arn=patch_task_role.role_arn,
+            targets=[
+                ssm.CfnMaintenanceWindowTask.TargetProperty(
+                    key="WindowTargetIds",
+                    values=[patch_target.ref],
+                )
+            ],
+            task_invocation_parameters=ssm.CfnMaintenanceWindowTask.TaskInvocationParametersProperty(
+                maintenance_window_run_command_parameters=ssm.CfnMaintenanceWindowTask.MaintenanceWindowRunCommandParametersProperty(
+                    parameters={
+                        # Install mode: download and apply missing patches.
+                        "Operation": ["Install"],
+                        # Reboot if required by the patches.
+                        "RebootOption": ["RebootIfNeeded"],
+                    },
+                    timeout_seconds=3600,
+                )
+            ),
+        )
+
+        # ==================================================================
+        # AUTO-STOP LAMBDA – stops the VM every day at 06:00 UTC (01:00 EST)
+        # ==================================================================
+        # Inline Lambda: small enough to keep the stack self-contained.
+        auto_stop_code = lambda_.Code.from_inline(
+            "\n".join([
+                "import boto3, os",
+                "",
+                "ec2_client = boto3.client('ec2')",
+                "",
+                "def handler(event, context):",
+                "    tag_key   = os.environ.get('TAG_KEY',   'Project')",
+                "    tag_value = os.environ.get('TAG_VALUE', 'SEEDLabs')",
+                "    paginator = ec2_client.get_paginator('describe_instances')",
+                "    instance_ids = []",
+                "    pages = paginator.paginate(",
+                "        Filters=[",
+                "            {'Name': f'tag:{tag_key}', 'Values': [tag_value]},",
+                "            {'Name': 'instance-state-name', 'Values': ['running', 'pending']},",
+                "        ]",
+                "    )",
+                "    for page in pages:",
+                "        for reservation in page['Reservations']:",
+                "            for inst in reservation['Instances']:",
+                "                instance_ids.append(inst['InstanceId'])",
+                "    if instance_ids:",
+                "        print(f'Stopping instances: {instance_ids}')",
+                "        ec2_client.stop_instances(InstanceIds=instance_ids)",
+                "    else:",
+                "        print('No running instances found with the specified tag — nothing to stop.')",
+                "    return {'stopped': instance_ids}",
+            ])
+        )
+
+        auto_stop_fn = lambda_.Function(
+            self,
+            "SeedLabAutoStopFn",
+            function_name="seed-lab-auto-stop",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="index.handler",
+            code=auto_stop_code,
+            timeout=Duration.seconds(30),
+            description=(
+                "Stops all EC2 instances tagged Project=SEEDLabs. "
+                "Triggered daily at 06:00 UTC (01:00 EST / 02:00 EDT)."
+            ),
+            environment={
+                "TAG_KEY":   "Project",
+                "TAG_VALUE": "SEEDLabs",
+            },
+        )
+
+        # Grant the Lambda permission to describe and stop EC2 instances that
+        # carry the Project=SEEDLabs tag.
+        auto_stop_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                sid="DescribeInstances",
+                actions=["ec2:DescribeInstances"],
+                resources=["*"],  # DescribeInstances does not support resource-level restriction
+            )
+        )
+        auto_stop_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                sid="StopTaggedInstances",
+                actions=["ec2:StopInstances"],
+                resources=["*"],
+                conditions={
+                    "StringEquals": {
+                        "ec2:ResourceTag/Project": "SEEDLabs",
+                    }
+                },
+            )
+        )
+
+        # EventBridge rule: fire every day at 06:00 UTC.
+        # 06:00 UTC = 01:00 EST (UTC-5) = 02:00 EDT (UTC-4).
+        auto_stop_rule = events.Rule(
+            self,
+            "SeedLabAutoStopRule",
+            rule_name="seed-lab-auto-stop",
+            description="Stop SEED Lab VM daily at 06:00 UTC (01:00 EST)",
+            schedule=events.Schedule.cron(
+                minute="0",
+                hour="6",
+                month="*",
+                week_day="*",
+                year="*",
+            ),
+        )
+        auto_stop_rule.add_target(targets.LambdaFunction(auto_stop_fn))
+
+        # ==================================================================
+        # AMAZON GUARDDUTY – threat detection for the account/region
+        # ==================================================================
+        # Enabling GuardDuty at the detector level covers the entire AWS
+        # account in this region: EC2 network flows (VPC Flow Logs),
+        # CloudTrail management events, DNS query logs, and — with the
+        # additional data sources enabled below — S3 data events and
+        # EKS audit logs if those services are used.
+        guardduty_detector = guardduty.CfnDetector(
+            self,
+            "SeedLabGuardDuty",
+            enable=True,
+            # FIFTEEN_MINUTES gives near-real-time alerting; use SIX_HOURS
+            # to reduce costs if high-frequency alerting is not needed.
+            finding_publishing_frequency="FIFTEEN_MINUTES",
+            # Enable the Malware Protection data source so EBS volumes
+            # on the instance are scanned if a threat is detected.
+            data_sources=guardduty.CfnDetector.CFNDataSourceConfigurationsProperty(
+                malware_protection=guardduty.CfnDetector.CFNMalwareProtectionConfigurationProperty(
+                    scan_ec2_instance_with_findings=guardduty.CfnDetector.CFNScanEc2InstanceWithFindingsConfigurationProperty(
+                        ebs_volumes=True,
+                    )
+                )
+            ),
+        )
+
+        Tags.of(guardduty_detector).add("Project", "SEEDLabs")
+
+        # ==================================================================
         # CloudFormation Outputs
-        # ------------------------------------------------------------------
+        # ==================================================================
         CfnOutput(
             self,
             "InstanceId",
@@ -286,5 +509,15 @@ class SeedLabStack(Stack):
             description=(
                 "Start an SSM Session Manager shell session. "
                 "Requires the AWS CLI and the Session Manager plugin installed locally."
+            ),
+        )
+
+        CfnOutput(
+            self,
+            "GuardDutyDetectorId",
+            value=guardduty_detector.ref,
+            description=(
+                "GuardDuty detector ID for this region. "
+                "View findings at: https://console.aws.amazon.com/guardduty/"
             ),
         )

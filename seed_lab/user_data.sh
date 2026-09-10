@@ -115,4 +115,23 @@ systemctl daemon-reload
 systemctl enable vncserver@1.service
 systemctl start  vncserver@1.service
 
+# ---------------------------------------------------------------------------
+# 9. Ensure the AWS SSM Agent is installed, enabled, and running.
+#    Ubuntu 20.04 ships snap-based SSM Agent; make sure it is active so that
+#    SSM Patch Manager can connect during the weekly maintenance window.
+# ---------------------------------------------------------------------------
+echo "=== Ensuring SSM Agent is running ==="
+
+# The snap package is the recommended install path on Ubuntu 20.04.
+# If it is already installed (as on most AWS-published AMIs) this is a no-op.
+if ! snap list amazon-ssm-agent &>/dev/null; then
+    snap install amazon-ssm-agent --classic
+fi
+
+# Start and enable via snap service management.
+snap start amazon-ssm-agent
+systemctl enable snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+
+echo "SSM Agent status: $(snap services amazon-ssm-agent | tail -1)"
+
 echo "=== SEED Labs bootstrap completed successfully at $(date) ==="
