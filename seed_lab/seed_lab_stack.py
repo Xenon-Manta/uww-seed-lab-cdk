@@ -284,6 +284,10 @@ class SeedLabStack(Stack):
         )
 
         # IAM role that SSM uses to execute the patch task on the instance.
+        # The policy (AmazonSSMMaintenanceWindowRole) is attached at role
+        # creation time so CloudFormation does not need to update the role
+        # after creation.  SSM assumes this role directly via the trust
+        # policy, so no separate iam:PassRole grant is required.
         patch_task_role = iam.Role(
             self,
             "SeedLabPatchTaskRole",
@@ -293,11 +297,6 @@ class SeedLabStack(Stack):
                     "AmazonSSMMaintenanceWindowRole"
                 )
             ],
-        )
-
-        # Allow SSM service to pass this role when scheduling tasks.
-        patch_task_role.grant_pass_role(
-            iam.ServicePrincipal("ssm.amazonaws.com")
         )
 
         # Task: run AWS-RunPatchBaseline with Install operation.
