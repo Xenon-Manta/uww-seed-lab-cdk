@@ -141,8 +141,7 @@ class SeedLabStack(Stack):
             self,
             "SeedLabSG",
             vpc=vpc,
-            security_group_name="seed-lab-sg",
-            description="SEED Labs: SSH and VNC access - Add Rule to Allow Traffic",
+            description="SEED Labs: SSH and VNC access",
             allow_all_outbound=True,
         )
 
