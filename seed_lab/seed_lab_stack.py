@@ -283,20 +283,64 @@ class SeedLabStack(Stack):
             description="SEED Lab VM instances (tag Project=SEEDLabs)",
         )
 
-        # IAM role that SSM uses to execute the patch task on the instance.
-        # The policy (AmazonSSMMaintenanceWindowRole) is attached at role
-        # creation time so CloudFormation does not need to update the role
-        # after creation.  SSM assumes this role directly via the trust
-        # policy, so no separate iam:PassRole grant is required.
+        # IAM role that SSM Maintenance Windows assumes to run patch tasks.
+        # AmazonSSMMaintenanceWindowRole was retired by AWS; the current
+        # best-practice is an inline policy scoped to exactly what the
+        # maintenance window task needs:
+        #   - Send the RunPatchBaseline command to the instance
+        #   - Read instance/command status (required by the task runner)
+        #   - Write patch compliance results back to SSM
+        #   - Write task run logs to CloudWatch Logs
         patch_task_role = iam.Role(
             self,
             "SeedLabPatchTaskRole",
             assumed_by=iam.ServicePrincipal("ssm.amazonaws.com"),
-            managed_policies=[
-                iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "AmazonSSMMaintenanceWindowRole"
+            inline_policies={
+                "SeedLabPatchTaskPolicy": iam.PolicyDocument(
+                    statements=[
+                        iam.PolicyStatement(
+                            sid="SendRunCommand",
+                            actions=["ssm:SendCommand"],
+                            resources=[
+                                # Allow sending the patch document to any instance
+                                f"arn:aws:ec2:{self.region}:{self.account}:instance/*",
+                                # The AWS-RunPatchBaseline document itself
+                                f"arn:aws:ssm:{self.region}::document/AWS-RunPatchBaseline",
+                            ],
+                        ),
+                        iam.PolicyStatement(
+                            sid="MonitorCommand",
+                            actions=[
+                                "ssm:ListCommands",
+                                "ssm:ListCommandInvocations",
+                                "ssm:GetCommandInvocation",
+                                "ssm:DescribeInstanceInformation",
+                            ],
+                            resources=["*"],
+                        ),
+                        iam.PolicyStatement(
+                            sid="WritePatchCompliance",
+                            actions=[
+                                "ssm:PutComplianceItems",
+                                "ssm:GetDefaultPatchBaseline",
+                                "ssm:DescribePatchBaseline",
+                            ],
+                            resources=["*"],
+                        ),
+                        iam.PolicyStatement(
+                            sid="WriteTaskLogs",
+                            actions=[
+                                "logs:CreateLogGroup",
+                                "logs:CreateLogStream",
+                                "logs:PutLogEvents",
+                                "logs:DescribeLogGroups",
+                                "logs:DescribeLogStreams",
+                            ],
+                            resources=["*"],
+                        ),
+                    ]
                 )
-            ],
+            },
         )
 
         # Task: run AWS-RunPatchBaseline with Install operation.
