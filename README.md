@@ -196,7 +196,7 @@ sudo su seed
 
 ### VNC (graphical desktop)
 
-1. Install a VNC viewer — [TigerVNC](https://tigervnc.org/) or [RealVNC](https://www.realvnc.com/en/connect/download/viewer/) are both compatible.
+1. Install a VNC viewer — [TigerVNC](https://tigervnc.org/) or [RealVNC](https://www.realvnc.com/en/connect/download/viewer/) are both compatible (I use TightVNC).
 2. Connect to `<PublicIp>:5901` (use the `VncAddress` output).
 3. Enter the default VNC password: **`SEEDlabs2024!`**
 4. **Change the password immediately** after first login:
@@ -205,7 +205,16 @@ sudo su seed
    vncpasswd
    ```
 
-> VNC traffic is unencrypted. For sensitive work, tunnel it over SSH:
+> VNC traffic is unencrypted. For sensitive work, tunnel it over SSM (SSM Port Forwarding) or SSH (less secure):
+> SSM Port Forwarding:
+> On your machine:
+> ```powershell
+> aws ssm start-session `
+    --target "i-093e5e3496eb545fd" `
+    --document-name AWS-StartPortForwardingSession `
+    --parameters '{\"portNumber\":[\"5901\"],\"localPortNumber\":[\"5901\"]}'
+> ```
+
 > ```bash
 > ssh -i seed-lab-key.pem -L 5901:localhost:5901 ubuntu@<PublicIp>
 > ```
