@@ -205,8 +205,9 @@ sudo su seed
    vncpasswd
    ```
 
-> VNC traffic is unencrypted. For sensitive work, tunnel it over SSM (SSM Port Forwarding) or SSH (less secure):
-> SSM Port Forwarding:
+VNC traffic is unencrypted. For sensitive work, tunnel it over SSM (SSM Port Forwarding) or SSH (less secure):
+
+SSM Port Forwarding:
 > On your machine:
 > ```powershell
 > aws ssm start-session `
